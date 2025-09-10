@@ -1,0 +1,12 @@
+mkdir app
+mkdir app/templates
+mkdir app/static
+mkdir tests
+touch app/__init__.py
+touch app/models.py
+touch app/routes.py
+touch app/utils.py
+touch app/config.py
+touch app/errors.py
+touch requirements.txt
+touch run.py
