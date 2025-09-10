@@ -1,0 +1,40 @@
+# app/utils.py
+import string
+import random
+from urllib.parse import urlparse
+import validators
+
+def generate_short_code(length=6):
+    """Generate a random short code"""
+    chars = string.ascii_letters + string.digits
+    return ''.join(random.choice(chars) for _ in range(length))
+
+def validate_url(url):
+    """Validate URL format"""
+    if not url:
+        return False, "URL is required"
+    
+    if not validators.url(url):
+        return False, "Invalid URL format"
+    
+    # Additional checks
+    parsed = urlparse(url)
+    if not parsed.scheme:
+        url = 'https://' + url
+        if not validators.url(url):
+            return False, "Invalid URL format"
+    
+    return True, url
+
+def validate_short_code(code):
+    """Validate short code format"""
+    if not code:
+        return False, "Short code is required"
+    
+    if len(code) < 3 or len(code) > 20:
+        return False, "Short code must be between 3 and 20 characters"
+    
+    if not all(c.isalnum() for c in code):
+        return False, "Short code can only contain letters and numbers"
+    
+    return True, code
