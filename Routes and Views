@@ -1,0 +1,122 @@
+# app/routes.py
+from flask import Blueprint, request, redirect, render_template, jsonify, url_for
+from app import db, limiter
+from app.models import URL, Analytics
+from app.utils import generate_short_code, validate_url, validate_short_code
+from sqlalchemy.exc import IntegrityError
+import validators
+
+bp = Blueprint('main', __name__)
+
+@bp.route('/')
+def index():
+    return render_template('index.html')
+
+@bp.route('/shorten', methods=['POST'])
+@limiter.limit("10 per minute")  # Rate limiting to prevent abuse
+def shorten_url():
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    original_url = data.get('original_url')
+    custom_code = data.get('custom_code')
+    
+    # Validate URL
+    is_valid, result = validate_url(original_url)
+    if not is_valid:
+        return jsonify({'error': result}), 400
+    original_url = result  # In case it was fixed
+    
+    # Check if custom code is provided
+    if custom_code:
+        is_valid, result = validate_short_code(custom_code)
+        if not is_valid:
+            return jsonify({'error': result}), 400
+        short_code = custom_code
+        is_custom = True
+    else:
+        short_code = generate_short_code()
+        is_custom = False
+    
+    # Check if short code already exists
+    existing_url = URL.query.filter_by(short_code=short_code).first()
+    if existing_url:
+        if is_custom:
+            return jsonify({'error': 'Custom code already in use'}), 409
+        else:
+            # Generate a new code if there's a collision
+            short_code = generate_short_code(7)  # Try with longer length
+    
+    # Create and save the URL
+    url = URL(
+        original_url=original_url,
+        short_code=short_code,
+        is_custom=is_custom
+    )
+    
+    try:
+        db.session.add(url)
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'error': 'Short code already exists'}), 409
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Server error'}), 500
+    
+    short_url = request.host_url + short_code
+    return jsonify({
+        'short_url': short_url,
+        'original_url': original_url
+    })
+
+@bp.route('/<short_code>')
+def redirect_to_url(short_code):
+    url = URL.query.filter_by(short_code=short_code).first_or_404()
+    
+    # Record analytics
+    analytics = Analytics(
+        url_id=url.id,
+        ip_address=request.remote_addr,
+        user_agent=request.user_agent.string,
+        referrer=request.referrer
+    )
+    
+    # Update click count
+    url.clicks += 1
+    
+    try:
+        db.session.add(analytics)
+        db.session.commit()
+    except:
+        db.session.rollback()
+        # Don't fail the redirect if analytics fails
+    
+    return redirect(url.original_url)
+
+@bp.route('/analytics/<short_code>')
+def analytics(short_code):
+    url = URL.query.filter_by(short_code=short_code).first_or_404()
+    
+    # Get recent accesses (last 20)
+    recent_accesses = Analytics.query.filter_by(url_id=url.id)\
+        .order_by(Analytics.accessed_at.desc())\
+        .limit(20)\
+        .all()
+    
+    return render_template('analytics.html', 
+                         url=url, 
+                         recent_accesses=recent_accesses)
+
+@bp.route('/api/analytics/<short_code>')
+def api_analytics(short_code):
+    url = URL.query.filter_by(short_code=short_code).first_or_404()
+    
+    return jsonify({
+        'short_code': url.short_code,
+        'original_url': url.original_url,
+        'created_at': url.created_at.isoformat(),
+        'clicks': url.clicks,
+        'is_custom': url.is_custom
+    })
