@@ -10,3 +10,11 @@ touch app/config.py
 touch app/errors.py
 touch requirements.txt
 touch run.py
+
+Flask==2.3.3
+python-dotenv==1.0.0
+validators==0.20.0
+sqlalchemy==2.0.23
+flask-sqlalchemy==3.0.5
+flask-limiter==3.5.0
+gunicorn==21.2.0
